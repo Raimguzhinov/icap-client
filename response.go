@@ -103,7 +103,7 @@ func ReadResponse(b *bufio.Reader) (*Response, error) {
 		}
 
 		if scheme == SchemeHTTPResp {
-			httpMsg += strings.TrimSpace(currentMsg) + CRLF
+			httpMsg += strings.ReplaceAll(currentMsg, "\n", CRLF)
 			bufferEmpty := b.Buffered() == 0
 			if currentMsg == CRLF || bufferEmpty {
 				var erR error
