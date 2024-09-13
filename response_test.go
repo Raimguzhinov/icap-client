@@ -2,7 +2,9 @@ package icapclient
 
 import (
 	"bufio"
+	"io/ioutil"
 	"net/http"
+	"net/http/httputil"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,6 +21,7 @@ func TestResponse(t *testing.T) {
 			previewBytes int
 			respStr      string
 			httpReqStr   string
+			httpBody     []byte
 		}
 
 		sampleTable := []testSample{
@@ -44,6 +47,7 @@ func TestResponse(t *testing.T) {
 					"Accept: text/html, text/plain, image/gif\r\n" +
 					"Accept-Encoding: gzip, compress\r\n" +
 					"If-None-Match: \"xyzzy\", \"r2d2xxxx\"\r\n\r\n",
+				httpBody: []byte{},
 			},
 			{
 				headers: http.Header{
@@ -71,6 +75,7 @@ func TestResponse(t *testing.T) {
 					"2d\r\n" +
 					"I am posting this information.  ICAP powered!\r\n" +
 					"0\r\n\r\n",
+				httpBody: []byte("2d\r\nI am posting this information.  ICAP powered!\r\n0\r\n\r\n"),
 			},
 		}
 
@@ -110,13 +115,47 @@ func TestResponse(t *testing.T) {
 				t.Fatal(err.Error())
 			}
 
-			if !reflect.DeepEqual(resp.ContentRequest, wantedHTTPReq) {
+			body, err := ioutil.ReadAll(resp.ContentRequest.Body)
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+			if !reflect.DeepEqual(body, sample.httpBody) {
 				t.Logf("Wanted http request: %v, got: %v", wantedHTTPReq, resp.ContentRequest)
 				t.Fail()
 			}
 
 		}
 
+	})
+
+	t.Run("ReadResponse REQMOD Virus", func(t *testing.T) {
+		resp, err := ReadResponse(bufio.NewReader(strings.NewReader("ICAP/1.0 200 OK\r\n" +
+			"Date: Mon, 10 Jan 2000  09:55:21 GMT\r\n" +
+			"Server: ICAP-Server-Software/1.0\r\n" +
+			"Connection: close\r\n" +
+			"ISTag: \"W3E4R7U9-L2E4-2\"\r\n" +
+			"Encapsulated: res-hdr=0, res-body=213\r\n\r\n" +
+			"HTTP/1.1 403 Forbidden\r\n" +
+			"Date: Wed, 08 Nov 2000 16:02:10 GMT\r\n" +
+			"Server: Apache/1.3.12 (Unix)\r\n" +
+			"Last-Modified: Thu, 02 Nov 2000 13:51:37 GMT\r\n" +
+			"ETag: \"63600-1989-3a017169\"\r\n" +
+			"Content-Length: 58\r\n" +
+			"Content-Type: text/html\r\n\r\n" +
+			"3a\r\n" +
+			"Sorry, you are not allowed to access that naughty content.\r\n" +
+			"0\r\n\r\n")))
+		if err != nil {
+			t.Fatal(err.Error())
+		}
+		htmlBody, err := ioutil.ReadAll(httputil.NewChunkedReader(resp.ContentResponse.Body))
+		if err != nil {
+			t.Fatal(err.Error())
+		}
+		if string(htmlBody) != "Sorry, you are not allowed to access that naughty content." {
+			t.Log(string(htmlBody))
+			t.Fail()
+		}
 	})
 
 	t.Run("ReadResponse RESPMOD", func(t *testing.T) {
@@ -128,6 +167,7 @@ func TestResponse(t *testing.T) {
 			respStr      string
 			httpRespStr  string
 			httpReqStr   string
+			httpBody     []byte
 		}
 
 		sampleTable := []testSample{
@@ -157,6 +197,9 @@ func TestResponse(t *testing.T) {
 					"5c\r\n" +
 					"This is data that was returned by an origin server, but with value added by an ICAP server.\r\n" +
 					"0\r\n\r\n",
+				httpBody: []byte("5c\r\n" +
+					"This is data that was returned by an origin server, but with value added by an ICAP server.\r\n" +
+					"0\r\n\r\n"),
 			},
 		}
 
@@ -196,7 +239,11 @@ func TestResponse(t *testing.T) {
 				t.Fatal(err.Error())
 			}
 
-			if !reflect.DeepEqual(resp.ContentResponse, wantedHTTPResp) {
+			body, err := ioutil.ReadAll(resp.ContentResponse.Body)
+			if err != nil {
+				t.Fatal(err.Error())
+			}
+			if !reflect.DeepEqual(body, sample.httpBody) {
 				t.Logf("Wanted http response: %v, got: %v", wantedHTTPResp, resp.ContentResponse)
 				t.Fail()
 			}

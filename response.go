@@ -2,7 +2,9 @@ package icapclient
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,26 +20,23 @@ type Response struct {
 	ContentResponse *http.Response
 }
 
-var (
-	optionValues = map[string]bool{
-		PreviewHeader:          true,
-		MethodsHeader:          true,
-		AllowHeader:            true,
-		TransferPreviewHeader:  true,
-		ServiceHeader:          true,
-		ISTagHeader:            true,
-		OptBodyTypeHeader:      true,
-		MaxConnectionsHeader:   true,
-		OptionsTTLHeader:       true,
-		ServiceIDHeader:        true,
-		TransferIgnoreHeader:   true,
-		TransferCompleteHeader: true,
-	}
-)
+var optionValues = map[string]bool{
+	PreviewHeader:          true,
+	MethodsHeader:          true,
+	AllowHeader:            true,
+	TransferPreviewHeader:  true,
+	ServiceHeader:          true,
+	ISTagHeader:            true,
+	OptBodyTypeHeader:      true,
+	MaxConnectionsHeader:   true,
+	OptionsTTLHeader:       true,
+	ServiceIDHeader:        true,
+	TransferIgnoreHeader:   true,
+	TransferCompleteHeader: true,
+}
 
 // ReadResponse converts a Reader to a icapclient Response
 func ReadResponse(b *bufio.Reader) (*Response, error) {
-
 	resp := &Response{
 		Header: make(map[string][]string),
 	}
@@ -90,7 +89,7 @@ func ReadResponse(b *bufio.Reader) (*Response, error) {
 		}
 
 		if scheme == SchemeHTTPReq {
-			httpMsg += strings.TrimSpace(currentMsg) + CRLF
+			httpMsg += currentMsg
 			bufferEmpty := b.Buffered() == 0
 			if currentMsg == CRLF || bufferEmpty { // a CRLF indicates the end of a http message and the buffer check is just in case the buffer eneded with one last message instead of a CRLF
 				var erR error
@@ -103,10 +102,13 @@ func ReadResponse(b *bufio.Reader) (*Response, error) {
 		}
 
 		if scheme == SchemeHTTPResp {
-			httpMsg += strings.ReplaceAll(currentMsg, "\n", CRLF)
+			httpMsg += currentMsg
 			bufferEmpty := b.Buffered() == 0
 			if currentMsg == CRLF || bufferEmpty {
 				var erR error
+				//if strings.Contains(httpMsg, bodyEndIndicator) {
+				//	httpMsg = strings.TrimSuffix(httpMsg, CRLF)
+				//}
 				resp.ContentResponse, erR = http.ReadResponse(bufio.NewReader(strings.NewReader(httpMsg)), resp.ContentRequest)
 				if erR != nil {
 					return nil, erR
@@ -118,6 +120,24 @@ func ReadResponse(b *bufio.Reader) (*Response, error) {
 
 	}
 
-	return resp, nil
+	if httpMsg != "" {
+		split := strings.Split(httpMsg, DoubleCRLF)
+		if len(split) > 1 && isRequestLine(split[0]) {
+			httpMsg = ""
+			for _, line := range split[1:] {
+				httpMsg += line
+				if line != split[len(split)-1] {
+					httpMsg += DoubleCRLF
+				}
+			}
+		}
+		if resp.ContentResponse != nil {
+			resp.ContentResponse.Body = ioutil.NopCloser(bytes.NewReader([]byte(httpMsg)))
+		}
+		if resp.ContentRequest != nil {
+			resp.ContentRequest.Body = ioutil.NopCloser(bytes.NewReader([]byte(httpMsg)))
+		}
+	}
 
+	return resp, nil
 }
